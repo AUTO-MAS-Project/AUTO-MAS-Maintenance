@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "games": {
+    "arknights": {
+      "maintenance": {
+        "planned_start_at": "2026-10-08T10:00:00+08:00",
+        "planned_end_at": "2026-10-08T18:00:00+08:00",
+        "type": "extension",
+        "source_url": "https://ak.hypergryph.com/news"
+      },
+      "expires_at": "2026-10-08T20:00:00+08:00",
+      "reason": "示例：人工修正计划开服时间，使用前请替换为真实公告"
+    },
+    "endfield": {
+      "maintenance": null,
+      "expires_at": "2026-10-08T18:00:00+08:00",
+      "reason": "示例：提前开服，暂时清除自动维护策略"
+    }
+  }
+}
+

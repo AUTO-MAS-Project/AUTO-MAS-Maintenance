@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AUTO-MAS maintenance policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "generated_at", "games"],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "generated_at": {"$ref": "#/$defs/timestamp"},
+    "games": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["arknights", "endfield"],
+      "properties": {
+        "arknights": {"$ref": "#/$defs/game"},
+        "endfield": {"$ref": "#/$defs/game"}
+      }
+    }
+  },
+  "$defs": {
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "game": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maintenance"],
+      "properties": {
+        "maintenance": {
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/maintenance"}]
+        }
+      }
+    },
+    "maintenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["planned_start_at", "planned_end_at", "type", "source_url", "override"],
+      "properties": {
+        "planned_start_at": {"$ref": "#/$defs/timestamp"},
+        "planned_end_at": {"$ref": "#/$defs/timestamp"},
+        "type": {"enum": ["version_update", "hotfix", "emergency", "extension"]},
+        "source_url": {"type": "string", "format": "uri", "pattern": "^https://[^/]+"},
+        "override": {"type": "boolean"}
+      }
+    }
+  }
+}
+
