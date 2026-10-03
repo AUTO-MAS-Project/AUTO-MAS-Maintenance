@@ -1,5 +1,9 @@
 import json
+from email.message import Message
+from io import BytesIO
 from urllib.error import HTTPError
+from urllib.request import HTTPSHandler, build_opener
+from urllib.response import addinfourl
 
 import pytest
 
@@ -114,3 +118,66 @@ def test_upload_multipart_filename_and_authorization(monkeypatch):
 
     monkeypatch.setattr("automas_api.publish.build_opener", lambda *a: Opener())
     assert _upload(URL, "test-token", b"{}", "CI run") == RESPONSE
+
+
+def redirect_transport(monkeypatch, status, location, *, loop=False):
+    requests = []
+
+    class Transport(HTTPSHandler):
+        def https_open(self, request):
+            requests.append(request)
+            headers = Message()
+            redirect = loop or len(requests) == 1
+            if redirect:
+                headers["Location"] = location
+            response = addinfourl(
+                BytesIO(b"" if redirect else json.dumps(RESPONSE).encode()),
+                headers,
+                request.full_url,
+                status if redirect else 201,
+            )
+            response.msg = "Redirect" if redirect else "Created"
+            return response
+
+    monkeypatch.setattr(
+        "automas_api.publish.build_opener", lambda handler: build_opener(Transport(), handler)
+    )
+    return requests
+
+
+@pytest.mark.parametrize("status", [307, 308])
+def test_upload_follows_redirect_with_same_post_body_and_token(monkeypatch, status):
+    url = "https://data.auto-mas.top/api/v1/user/files/17/versions"
+    requests = redirect_transport(monkeypatch, status, url + "/")
+    assert _upload(url, "test-token", b"{}", "CI run") == RESPONSE
+    original, redirected = requests
+    assert redirected.full_url == url + "/"
+    assert redirected.get_method() == "POST"
+    assert redirected.data == original.data
+    assert redirected.get_header("Content-type") == original.get_header("Content-type")
+    assert redirected.get_header("Authorization") == "Bearer test-token"
+
+
+@pytest.mark.parametrize(
+    ("status", "location"),
+    [
+        (307, "https://other.example/upload"),
+        (307, "http://data.auto-mas.top/upload"),
+        (307, "https://data.auto-mas.top:8443/upload"),
+        (307, "https://user@data.auto-mas.top/upload"),
+        (302, "https://data.auto-mas.top/upload"),
+    ],
+)
+def test_upload_rejects_unsafe_or_method_changing_redirect(monkeypatch, status, location):
+    requests = redirect_transport(monkeypatch, status, location)
+    with pytest.raises(HTTPError) as error:
+        _upload(URL, "test-token", b"{}", "CI run")
+    assert error.value.code == status
+    assert len(requests) == 1
+
+
+def test_upload_redirect_loop_is_bounded(monkeypatch):
+    requests = redirect_transport(monkeypatch, 307, URL, loop=True)
+    with pytest.raises(HTTPError, match="redirect error"):
+        _upload(URL, "test-token", b"{}", "CI run")
+    assert len(requests) <= 6

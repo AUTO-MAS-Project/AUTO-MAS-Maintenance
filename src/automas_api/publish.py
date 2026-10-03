@@ -22,10 +22,30 @@ class PublishError(ValueError):
     pass
 
 
-class _NoRedirect(HTTPRedirectHandler):
+class _UploadRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        # An upload credential must only reach the configured API endpoint.
-        return None
+        original = urlsplit(req.full_url)
+        target = urlsplit(newurl)
+        if (
+            code not in {307, 308}
+            or original.scheme != "https"
+            or target.scheme != "https"
+            or target.hostname != original.hostname
+            or (target.port or 443) != (original.port or 443)
+            or target.username is not None
+            or target.password is not None
+        ):
+            return None
+        # 307/308 preserve the POST method and multipart body. Retain the
+        # credential only within the original HTTPS origin.
+        return Request(
+            newurl,
+            data=req.data,
+            headers=req.headers,
+            origin_req_host=req.origin_req_host,
+            unverifiable=True,
+            method=req.get_method(),
+        )
 
 
 def validate_target(base_url: str, public_url: str, file_id: int) -> str:
@@ -81,7 +101,7 @@ def _upload(url: str, token: str, content: bytes, change_note: str) -> object:
         },
     )
     # No POST retry: an interrupted response may already have created a version.
-    with build_opener(_NoRedirect()).open(request, timeout=30) as response:
+    with build_opener(_UploadRedirect()).open(request, timeout=30) as response:
         raw = response.read(MAX_BYTES + 1)
     if len(raw) > MAX_BYTES:
         raise PublishError("upload response exceeds size limit")
