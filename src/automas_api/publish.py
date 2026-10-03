@@ -80,6 +80,7 @@ def _upload(url: str, token: str, content: bytes, change_note: str) -> object:
             "--show-error",
             "--fail",
             "--location",
+            "--location-trusted",
             "--max-redirs",
             "5",
             "--proto",
@@ -109,7 +110,7 @@ def _upload(url: str, token: str, content: bytes, change_note: str) -> object:
             url,
         ]
         # Supply Authorization through stdin, keeping the token out of command
-        # arguments and logs. Do not forward credentials to another origin.
+        # arguments and logs. --location-trusted retains it across redirects.
         config = "header = " + json.dumps(f"Authorization: Bearer {token}") + "\n"
         try:
             result = subprocess.run(
