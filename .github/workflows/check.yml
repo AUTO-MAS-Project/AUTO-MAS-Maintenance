@@ -4,7 +4,7 @@ on:
   pull_request:
   push:
     paths-ignore:
-      - api/v1/status.json
+      - api/v1/maintain.json
 
 permissions:
   contents: read
@@ -22,6 +22,7 @@ jobs:
       - run: uv sync --locked
       - run: uv run ruff check .
       - run: uv run ruff format --check .
+      - run: uv run pytest -q
       - name: Validate policy and override documents
         run: |
           uv run python - <<'PY'
@@ -30,6 +31,6 @@ jobs:
           from automas_api.models import validate_status
           from automas_api.overrides import parse_overrides
 
-          validate_status(json.loads(Path('api/v1/status.json').read_text()))
+          validate_status(json.loads(Path('api/v1/maintain.json').read_text()))
           parse_overrides(json.loads(Path('config/overrides.json').read_text()))
           PY

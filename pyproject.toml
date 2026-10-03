@@ -11,6 +11,7 @@ dependencies = []
 
 [project.scripts]
 automas-update = "automas_api.update:main"
+automas-publish = "automas_api.publish:main"
 
 [dependency-groups]
 dev = ["pytest>=8", "jsonschema>=4.23", "ruff>=0.11"]
@@ -25,4 +26,3 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
-

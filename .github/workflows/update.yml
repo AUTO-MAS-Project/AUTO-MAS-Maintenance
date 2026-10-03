@@ -23,7 +23,7 @@ on:
       - .github/workflows/update.yml
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: maintenance-policy-publisher
@@ -32,6 +32,8 @@ concurrency:
 jobs:
   update:
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    permissions:
+      contents: write # Generated state is written only to refs/heads/data.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -47,6 +49,9 @@ jobs:
         run: |
           uv run ruff check .
           uv run ruff format --check .
+          uv run pytest -q
+      - name: Load persistent state from data branch
+        run: uv run python -m automas_api.state load
       - name: Poll and merge overrides
         env:
           MARK_OPENED_GAME: ${{ github.event_name == 'workflow_dispatch' && inputs.game || '' }}
@@ -56,20 +61,14 @@ jobs:
           else
             uv run automas-update --allow-source-failures
           fi
-      - name: Commit policy and opening event
+      - name: Save policy and opening event to data branch
+        run: uv run python -m automas_api.state save
+      - name: Synchronize data.auto-mas.top
         env:
-          TARGET_BRANCH: ${{ github.event.repository.default_branch }}
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- api/v1/status.json config/overrides.json
-          if git diff --cached --quiet; then
-            exit 0
-          fi
-          git commit -m 'chore: refresh maintenance policy'
-          # A concurrent manual edit causes a non-fast-forward rejection.
-          # Never rebase this stale result onto newer override configuration.
-          git push origin "HEAD:$TARGET_BRANCH"
+          AUTOMAS_TOKEN: ${{ secrets.AUTOMAS_TOKEN }}
+          AUTOMAS_FILE_ID: ${{ vars.AUTOMAS_FILE_ID }}
+          AUTOMAS_PUBLIC_URL: ${{ vars.AUTOMAS_PUBLIC_URL }}
+        run: uv run automas-publish --change-note "GitHub Actions run $GITHUB_RUN_ID"
       - name: Report source failures after publishing fail-open state
         if: always()
         run: |

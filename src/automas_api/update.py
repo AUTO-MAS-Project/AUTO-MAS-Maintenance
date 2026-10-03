@@ -63,7 +63,7 @@ def write_json(path: Path, value: dict):
 def main() -> int:
     parser = argparse.ArgumentParser(description="Refresh the AUTO-MAS maintenance policy")
     parser.add_argument("--overrides", type=Path, default=Path("config/overrides.json"))
-    parser.add_argument("--output", type=Path, default=Path("api/v1/status.json"))
+    parser.add_argument("--output", type=Path, default=Path("api/v1/maintain.json"))
     parser.add_argument("--report", type=Path, default=Path("poll-report.json"))
     parser.add_argument(
         "--mark-opened",

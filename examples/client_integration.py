@@ -7,7 +7,7 @@ from automas_api.client import check_maintenance
 
 def main():
     parser = argparse.ArgumentParser(description="Preview the task-start maintenance decision")
-    parser.add_argument("status_url", help="Configured stable URL ending in /api/v1/status.json")
+    parser.add_argument("status_url", help="Stable public download URL for maintain.json")
     parser.add_argument("game", choices=["arknights", "endfield"])
     args = parser.parse_args()
     decision = check_maintenance(args.status_url, args.game)
