@@ -6,8 +6,17 @@ on:
     - cron: '7 21 * * *'
   workflow_dispatch:
     inputs:
+      operation:
+        description: 标记提前开服、轮询公告或重试上传
+        required: true
+        type: choice
+        default: mark-opened
+        options:
+          - mark-opened
+          - poll
+          - sync
       game:
-        description: 选择要标记为已开服的游戏
+        description: 标记已开服的游戏（仅 mark-opened 使用）
         required: true
         type: choice
         default: arknights
@@ -37,6 +46,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Select operation
+        id: mode
+        env:
+          OPERATION: ${{ github.event_name == 'workflow_dispatch' && inputs.operation || 'poll' }}
+          GAME: ${{ inputs.game }}
+        run: |
+          case "$OPERATION" in
+            mark-opened|poll|sync) echo "operation=$OPERATION" >> "$GITHUB_OUTPUT" ;;
+            *) echo 'Unknown maintenance operation'; exit 1 ;;
+          esac
+          if [ "$OPERATION" = 'mark-opened' ]; then
+            case "$GAME" in
+              arknights|endfield) ;;
+              *) echo 'Choose a game to mark as opened'; exit 1 ;;
+            esac
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.repository.default_branch }}
@@ -51,10 +76,19 @@ jobs:
           uv run ruff format --check .
           uv run pytest -q
       - name: Load persistent state from data branch
-        run: uv run python -m automas_api.state load
-      - name: Poll and merge overrides
         env:
-          MARK_OPENED_GAME: ${{ github.event_name == 'workflow_dispatch' && inputs.game || '' }}
+          OPERATION: ${{ steps.mode.outputs.operation }}
+        run: |
+          if [ "$OPERATION" = 'sync' ]; then
+            uv run python -m automas_api.state load --require-existing
+          else
+            uv run python -m automas_api.state load
+          fi
+      - name: Poll and merge overrides
+        id: generate
+        if: steps.mode.outputs.operation != 'sync'
+        env:
+          MARK_OPENED_GAME: ${{ steps.mode.outputs.operation == 'mark-opened' && inputs.game || '' }}
         run: |
           if [ -n "$MARK_OPENED_GAME" ]; then
             uv run automas-update --allow-source-failures --mark-opened "$MARK_OPENED_GAME"
@@ -62,6 +96,7 @@ jobs:
             uv run automas-update --allow-source-failures
           fi
       - name: Save policy and opening event to data branch
+        if: steps.mode.outputs.operation != 'sync'
         run: uv run python -m automas_api.state save
       - name: Synchronize data.auto-mas.top
         env:
@@ -70,7 +105,7 @@ jobs:
           AUTOMAS_PUBLIC_URL: ${{ vars.AUTOMAS_PUBLIC_URL }}
         run: uv run automas-publish --change-note "GitHub Actions run $GITHUB_RUN_ID"
       - name: Report source failures after publishing fail-open state
-        if: always()
+        if: always() && steps.generate.outcome == 'success'
         run: |
           uv run python - <<'PY'
           import json

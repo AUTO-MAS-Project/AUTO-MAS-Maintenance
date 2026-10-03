@@ -51,11 +51,27 @@ uv run automas-update
 
 ## 人工覆盖
 
-维护者直接在 GitHub Actions 操作，无须编辑文件：
+开发者或 bot 在确认提前开服后，触发同一个 `update.yml` 工作流，无须编辑状态文件。
+
+开发者在 GitHub Actions 操作：
 
 1. 打开 **Actions → 更新维护状态 / 标记已开服 → Run workflow**。
-2. 使用默认分支，在 `game` 中选择 `arknights`（明日方舟）或 `endfield`（终末地）。
+2. 使用默认分支，选择 `operation=mark-opened`，在 `game` 中选择 `arknights`（明日方舟）或 `endfield`（终末地）。
 3. 点击 **Run workflow**，将所选游戏标记为已开服。
+
+bot 使用 GitHub Actions 的 [`workflow_dispatch` API](https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event) 或 GitHub CLI 触发同一个操作。例如，确认明日方舟已开服后执行：
+
+```sh
+gh workflow run update.yml \
+  --repo AUTO-MAS-Project/AUTO-MAS-Update-API \
+  --ref main \
+  -f operation=mark-opened \
+  -f game=arknights
+```
+
+`--ref` 使用仓库默认分支。bot 的 GitHub App / fine-grained token 需要该仓库的 `Actions: write` 权限，使用 `GH_TOKEN` 提供；这是调用 GitHub 的凭证。仓库 Secret `AUTOMAS_TOKEN` 则由 CI 用于上传数据中心，bot 无须持有它。
+
+同一个流程还支持 `operation=poll`（只轮询公告）和 `operation=sync`（只重试上传 `data` 分支的最新状态）。定时触发和代码 push 固定执行 `poll`；只有开发者或 bot 明确触发 `mark-opened` 才会记录开服。
 
 CI 以执行时刻记录 `opened_at = now`，解除该时刻之前已开始的维护，并自动将状态和记录保存到独立的 `data` 分支，再上传至数据中心。CI 不修改 `main` 或默认分支。客户端在上传完成、下载缓存刷新后的下一次拉取时恢复正常执行。定时触发仍只轮询公告，不会标记开服。
 
@@ -89,8 +105,8 @@ uv run automas-update --mark-opened arknights
 
 - 每日北京时间 05:07 轮询，以及 Actions 人工标记开服，均生成 `api/v1/maintain.json`，保存到 `data` 分支后立即上传。公告源失败时也发布对应游戏为 `null` 的 fail-open 状态，再将任务标记失败。
 - CI 从默认分支读取代码，仅向固定的 `refs/heads/data` 写入状态和人工记录。首次运行自动创建独立历史的 `data` 分支，只包含这两个 JSON 文件；后续执行先读取该分支最新内容。`main` 和默认分支不被 CI 修改。
-- **Actions → 同步维护状态到数据中心 → Run workflow** 从 `data` 分支读取最新状态并重试上传，不重新轮询、不刷新 `generated_at`、不重新标记开服。
-- 更新与重试共享发布锁。并发手动修改 `data` 分支会让过期状态的推送被拒绝；CI 不强推，不把旧结果覆盖到新开服记录上。
-- 上传失败仍保留 `data` 分支中的状态和开服记录，可使用独立同步流程重试。Secret 或 Variables 缺失时明确报错；目标文件尚未建立时，不会自动创建其他文件。
+- **Actions → 更新维护状态 / 标记已开服 → Run workflow** 选择 `operation=sync`，从 `data` 分支读取最新状态并重试上传，不重新轮询、不刷新 `generated_at`、不重新标记开服。
+- 轮询、标记开服与重试使用同一个工作流和发布锁，统一执行上传。并发手动修改 `data` 分支会让过期状态的推送被拒绝；CI 不强推，不把旧结果覆盖到新开服记录上。
+- 上传失败仍保留 `data` 分支中的状态和开服记录，可使用 `operation=sync` 重试。Secret 或 Variables 缺失时明确报错；目标文件尚未建立时，不会自动创建其他文件。
 
 本地使用同名环境变量运行 `uv run automas-publish`，默认上传 `api/v1/maintain.json`。令牌只从环境变量读取，不接收命令行参数、不写入日志。下载接口的 CDN 应不缓存或使用短缓存；回读旧内容超过重试次数会报告失败。
