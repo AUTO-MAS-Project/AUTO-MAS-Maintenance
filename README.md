@@ -4,7 +4,7 @@
 
 ## 开发
 
-需要 Python 3.12+ 和 uv。运行时仅使用 Python 标准库。
+需要 Python 3.12+ 和 uv。Python 运行时仅使用标准库；上传命令另需系统 `curl`，GitHub Actions 的 Ubuntu runner 已提供。
 
 ```sh
 uv sync --locked
@@ -101,7 +101,7 @@ uv run automas-update --mark-opened arknights
 
 公开下载 URL 为 `https://data.auto-mas.top/api/v1/files/{project_key}/{category_key}/{file_key}/download`，返回原始 JSON。客户端使用此固定 URL；网页文件详情地址不能用作下载 URL。数据中心的 `file_key` 由文件显示名生成，上传文件名不决定路由。
 
-现有后端根据 Access Key 所属账号处理审核：管理员的上传自动审核通过并发布，普通用户的上传进入待审核。无人值守即时生效需要已分配的 Key 属于管理员账号。CI 检查上传结果的审核与发布版本，再回读客户端使用的公开下载 URL；待审核或下载内容不一致均显示失败。上传支持同一 HTTPS 站点内的 307/308 重定向，保留 POST、multipart 内容及认证头。上传 POST 不因网络错误自动重试，避免网络中断后创建重复版本；公开内容一致时跳过上传，409 冲突只有回读内容一致才视为成功。
+现有后端根据 Access Key 所属账号处理审核：管理员的上传自动审核通过并发布，普通用户的上传进入待审核。无人值守即时生效需要已分配的 Key 属于管理员账号。CI 检查上传结果的审核与发布版本，再回读客户端使用的公开下载 URL；待审核或下载内容不一致均显示失败。上传直接使用数据中心示例中的 `curl -F`，通过 `--location` 跟随重定向并保留 307/308 的 POST 内容；只允许 HTTPS 跳转，不向其他站点转发认证头。上传 POST 不因网络错误自动重试，避免网络中断后创建重复版本；公开内容一致时跳过上传，409 冲突只有回读内容一致才视为成功。
 
 - 每日北京时间 05:07 轮询，以及 Actions 人工标记开服，均生成 `api/v1/maintain.json`，保存到 `data` 分支后立即上传。公告源失败时也发布对应游戏为 `null` 的 fail-open 状态，再将任务标记失败。
 - CI 从默认分支读取代码，仅向固定的 `refs/heads/data` 写入状态和人工记录。首次运行自动创建独立历史的 `data` 分支，只包含这两个 JSON 文件；后续执行先读取该分支最新内容。`main` 和默认分支不被 CI 修改。

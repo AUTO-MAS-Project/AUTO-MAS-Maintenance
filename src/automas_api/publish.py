@@ -4,12 +4,12 @@ import argparse
 import json
 import logging
 import os
-import secrets
+import subprocess
+import tempfile
 import time
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import quote, urlsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from .http import MAX_BYTES, get_json
 from .models import validate_status
@@ -22,30 +22,19 @@ class PublishError(ValueError):
     pass
 
 
-class _UploadRedirect(HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        original = urlsplit(req.full_url)
-        target = urlsplit(newurl)
-        if (
-            code not in {307, 308}
-            or original.scheme != "https"
-            or target.scheme != "https"
-            or target.hostname != original.hostname
-            or (target.port or 443) != (original.port or 443)
-            or target.username is not None
-            or target.password is not None
-        ):
-            return None
-        # 307/308 preserve the POST method and multipart body. Retain the
-        # credential only within the original HTTPS origin.
-        return Request(
-            newurl,
-            data=req.data,
-            headers=req.headers,
-            origin_req_host=req.origin_req_host,
-            unverifiable=True,
-            method=req.get_method(),
-        )
+def _display_url(url: str, token: str) -> str:
+    """Log redirect locations without credentials, query strings or fragments."""
+    try:
+        parts = urlsplit(url)
+        origin = f"{parts.scheme}://{parts.hostname}" if parts.hostname else ""
+        if parts.port is not None:
+            origin += f":{parts.port}"
+        display = origin + parts.path
+    except ValueError:
+        return "<invalid URL>"
+    if token:
+        display = display.replace(token, "***").replace(quote(token, safe=""), "***")
+    return display
 
 
 def validate_target(base_url: str, public_url: str, file_id: int) -> str:
@@ -78,31 +67,71 @@ def validate_target(base_url: str, public_url: str, file_id: int) -> str:
 
 
 def _upload(url: str, token: str, content: bytes, change_note: str) -> object:
-    boundary = "automas-" + secrets.token_hex(24)
-    body = (
-        (
-            f'--{boundary}\r\nContent-Disposition: form-data; name="change_note"\r\n\r\n'
-            f"{change_note}\r\n--{boundary}\r\n"
-            'Content-Disposition: form-data; name="file"; filename="maintain.json"\r\n'
-            "Content-Type: application/json\r\n\r\n"
-        ).encode()
-        + content
-        + f"\r\n--{boundary}--\r\n".encode()
-    )
-    request = Request(
-        url,
-        data=body,
-        method="POST",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/json",
-            "Content-Type": f"multipart/form-data; boundary={boundary}",
-            "User-Agent": "AUTOMAS_API/0.1",
-        },
-    )
-    # No POST retry: an interrupted response may already have created a version.
-    with build_opener(_UploadRedirect()).open(request, timeout=30) as response:
-        raw = response.read(MAX_BYTES + 1)
+    # Use the data center's curl -F upload example. curl handles 307/308
+    # redirects and multipart replay; never retry an uncertain upload.
+    with tempfile.TemporaryDirectory(prefix="automas-publish-") as directory:
+        source = Path(directory) / "maintain.json"
+        response = Path(directory) / "response.json"
+        cookies = Path(directory) / "cookies.txt"
+        source.write_bytes(content)
+        command = [
+            "curl",
+            "--silent",
+            "--show-error",
+            "--fail",
+            "--location",
+            "--max-redirs",
+            "5",
+            "--proto",
+            "=https",
+            "--proto-redir",
+            "=https",
+            "--max-time",
+            "30",
+            "--max-filesize",
+            str(MAX_BYTES),
+            "--request",
+            "POST",
+            "--config",
+            "-",
+            "--form",
+            f"file=@{source};type=application/json",
+            "--form-string",
+            f"change_note={change_note}",
+            "--cookie",
+            str(cookies),
+            "--cookie-jar",
+            str(cookies),
+            "--output",
+            str(response),
+            "--write-out",
+            "%{http_code}\n%{url_effective}\n%{num_redirects}",
+            url,
+        ]
+        # Supply Authorization through stdin, keeping the token out of command
+        # arguments and logs. Do not forward credentials to another origin.
+        config = "header = " + json.dumps(f"Authorization: Bearer {token}") + "\n"
+        try:
+            result = subprocess.run(
+                command, input=config, text=True, capture_output=True, timeout=35, check=False
+            )
+        except subprocess.TimeoutExpired:
+            raise PublishError("curl upload timed out") from None
+        fields = result.stdout.splitlines()
+        status = int(fields[0]) if fields and fields[0].isdigit() else 0
+        destination = _display_url(fields[1], token) if len(fields) > 1 else ""
+        redirects = fields[2] if len(fields) > 2 and fields[2].isdigit() else "unknown"
+        if redirects != "0":
+            log.info("curl upload redirects=%s; destination=%r", redirects, destination)
+        if status >= 400:
+            raise HTTPError(url, status, "data-center upload failed", {}, None)
+        if result.returncode or not 200 <= status < 300:
+            raise PublishError(
+                f"curl upload failed (exit {result.returncode}; HTTP {status}; "
+                f"redirects={redirects}; destination={destination!r})"
+            )
+        with response.open("rb") as stream:
+            raw = stream.read(MAX_BYTES + 1)
     if len(raw) > MAX_BYTES:
         raise PublishError("upload response exceeds size limit")
     return json.loads(raw.decode("utf-8-sig"))
