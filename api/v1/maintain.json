@@ -1,18 +1,12 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-10-15T07:51:16+08:00",
+  "generated_at": "2026-10-16T07:38:40+08:00",
   "games": {
     "arknights": {
       "maintenance": null
     },
     "endfield": {
-      "maintenance": {
-        "planned_start_at": "2026-10-15T06:00:00+08:00",
-        "planned_end_at": "2026-10-15T12:00:00+08:00",
-        "type": "version_update",
-        "source_url": "https://endfield.hypergryph.com/news/2650",
-        "override": false
-      }
+      "maintenance": null
     }
   }
 }
