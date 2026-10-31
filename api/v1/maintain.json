@@ -1,9 +1,15 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-10-30T08:47:01+08:00",
+  "generated_at": "2026-10-31T08:40:07+08:00",
   "games": {
     "arknights": {
-      "maintenance": null
+      "maintenance": {
+        "planned_start_at": "2026-11-01T06:00:00+08:00",
+        "planned_end_at": "2026-11-01T12:00:00+08:00",
+        "type": "version_update",
+        "source_url": "https://ak-webview.hypergryph.com/api/game/bulletin/9113",
+        "override": false
+      }
     },
     "endfield": {
       "maintenance": null
